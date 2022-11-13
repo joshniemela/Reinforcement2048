@@ -1,9 +1,9 @@
-using Sockets
 using Flux
 using Flux.Losses
-include("./hs2048env.jl")
 using ReinforcementLearning
-# accept connection
+
+include("./hs2048env.jl")
+
 ENV["LANG"] = "C.UTF-8"
 
 env = HS2048Env()
@@ -18,7 +18,7 @@ agent = Agent(
                         Dense(ns, 64, relu; init = glorot_uniform()),
                         Dense(64, 64, relu; init = glorot_uniform()),
                         Dense(64, na; init = glorot_uniform()),
-                    ) |> cpu,
+                    ) |> gpu,
                     optimizer = ADAM(),
                 ),
                 batch_size = 32,
