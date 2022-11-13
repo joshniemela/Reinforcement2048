@@ -1,42 +1,42 @@
 using Sockets
+using Flux
+using Flux.Losses
+include("./hs2048env.jl")
 using ReinforcementLearning
-using .Threads
 # accept connection
 ENV["LANG"] = "C.UTF-8"
 
+env = HS2048Env()
+reset!(env)
 
-function game(sock)
-    gameover = false
-    @async while !gameover
-        data = readavailable(sock)
-        if length(data) == 0
-            break
-        end
-        global oldData = (String(data))
-        global splitData = split(oldData, " ")
-        score, board = splitData[1], splitData[2:end]
-        if score == "gameover"
-            close(sock)
-            gameover = true
-        end
-        board = map(x -> parse(Int, x), board)
-        println("Score:", score)
-        for i ∈ 1:4
-            println(board[4i-3:4i])
-        end
-    end
-end
+ns, na = length(state(env)), length(action_space(env))
+agent = Agent(
+        policy = QBasedPolicy(
+            learner = BasicDQNLearner(
+                approximator = NeuralNetworkApproximator(
+                    model = Chain(
+                        Dense(ns, 64, relu; init = glorot_uniform()),
+                        Dense(64, 64, relu; init = glorot_uniform()),
+                        Dense(64, na; init = glorot_uniform()),
+                    ) |> cpu,
+                    optimizer = ADAM(),
+                ),
+                batch_size = 32,
+                min_replay_history = 100,
+                loss_func = huber_loss,
+            ),
+            explorer = EpsilonGreedyExplorer(
+                kind = :exp,
+                ϵ_stable = 0.01,
+                decay_steps = 500,
+            ),
+        ),
+        trajectory = CircularArraySARTTrajectory(
+            capacity = 50_000,
+            state = Vector{Float32} => (ns,),
+        ),
+    )
 
+hook = TotalRewardPerEpisode()
+run(agent, env, StopAfterEpisode(50), hook)
 
-port, connection = listenany(ip"127.0.0.1", 2048)
-run(`alacritty -e ./hs2048 -p $port`, wait=false)
-sock = accept(connection)
-game(sock)
-
-wasd = ["w", "a", "s", "d"]
-while isopen(sock)
-    action = rand(wasd)
-    println("Action:", action)
-    write(sock, action)
-    sleep(0.001)
-end
