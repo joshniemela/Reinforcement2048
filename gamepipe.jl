@@ -1,39 +1,44 @@
 using Flux
-using Flux.Losses
-using ReinforcementLearning
 
+using ReinforcementLearning
 include("./hs2048env.jl")
 
 ENV["LANG"] = "C.UTF-8"
 
 env = HS2048Env()
-reset!(env)
+#reset!(env)
 
 ns, na = length(state(env)), length(action_space(env))
+N_ENV = 16
+UPDATE_FREQ = 10
 agent = Agent(
         policy = QBasedPolicy(
-            learner = BasicDQNLearner(
-                approximator = NeuralNetworkApproximator(
-                    model = Chain(
-                        Dense(ns, 64, relu; init = glorot_uniform()),
-                        Dense(64, 64, relu; init = glorot_uniform()),
-                        Dense(64, na; init = glorot_uniform()),
-                    ) |> gpu,
-                    optimizer = ADAM(),
-                ),
-                batch_size = 32,
-                min_replay_history = 100,
-                loss_func = huber_loss,
+            learner = A2CLearner(
+                approximator = ActorCritic(
+                    actor = Chain(
+                        Dense(ns, 256, relu; init = glorot_uniform()),
+                        Dense(256, na; init = glorot_uniform()),
+                    ),
+                    critic = Chain(
+                        Dense(ns, 256, relu; init = glorot_uniform()),
+                        Dense(256, 1; init = glorot_uniform()),
+                    ),
+                    optimizer = ADAM(1e-3),
+                ) |> gpu,
+                γ = 0.99f0,
+                actor_loss_weight = 1.0f0,
+                critic_loss_weight = 0.5f0,
+                entropy_loss_weight = 0.001f0,
+                update_freq = UPDATE_FREQ,
             ),
-            explorer = EpsilonGreedyExplorer(
-                kind = :exp,
-                ϵ_stable = 0.01,
-                decay_steps = 500,
-            ),
+            explorer = BatchExplorer(GumbelSoftmaxExplorer()),
         ),
-        trajectory = CircularArraySARTTrajectory(
-            capacity = 50_000,
-            state = Vector{Float32} => (ns,),
+        trajectory = CircularArraySARTTrajectory(;
+            capacity = UPDATE_FREQ,
+            state = Matrix{Float32} => (ns, N_ENV),
+            action = Vector{Int} => (N_ENV,),
+            reward = Vector{Float32} => (N_ENV,),
+            terminal = Vector{Bool} => (N_ENV,),
         ),
     )
 
