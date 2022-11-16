@@ -4,7 +4,7 @@ export HS2048Env
 
 Base.@kwdef mutable struct HS2048Env <: AbstractEnv
     reward::UInt = 0
-    state::Matrix{UInt8} = zeros(UInt, 4, 4)
+    state::Vector{UInt8} = zeros(UInt, 16)
     actions::Vector{String} = ["w", "a", "s", "d"]
     isDone::Bool = false
     sock::TCPSocket = TCPSocket()
@@ -21,7 +21,7 @@ RLBase.state(env::HS2048Env) = env.state
 RLBase.is_terminated(env::HS2048Env) = env.isDone
 
 # State space is a 16 element vector of UInt8
-RLBase.state_space(::HS2048Env) = Space(fill(0:16, (4, 4)))
+RLBase.state_space(::HS2048Env) = Space(fill(0:16, 16))
 RLBase.reward(env::HS2048Env) = env.reward
 
 
@@ -36,7 +36,7 @@ readBoardState(env) = begin
         else
             splitData = split(data, " ")
             parsed = map(x -> parse(UInt, x), splitData)
-            env.reward, env.state = parsed[1], reshape(parsed[2:end], 4, 4)
+            env.reward, env.state = parsed[1], parsed[2:end]
         end
     end
     env
