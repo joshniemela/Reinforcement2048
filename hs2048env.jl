@@ -4,7 +4,7 @@ export HS2048Env
 
 Base.@kwdef mutable struct HS2048Env <: AbstractEnv
     reward::UInt = 0
-    state::Vector{UInt8} = zeros(UInt, 16)
+    state::Matrix{UInt8} = zeros(UInt, 4, 4)
     actions::Vector{String} = ["w", "a", "s", "d"]
     isDone::Bool = false
     sock::TCPSocket = TCPSocket()
@@ -21,7 +21,7 @@ RLBase.state(env::HS2048Env) = env.state
 RLBase.is_terminated(env::HS2048Env) = env.isDone
 
 # State space is a 16 element vector of UInt8
-RLBase.state_space(::HS2048Env) = Space(fill(0:16, 16))
+RLBase.state_space(::HS2048Env) = Space(fill(0:16, (4, 4)))
 RLBase.reward(env::HS2048Env) = env.reward
 
 
@@ -30,13 +30,13 @@ readBoardState(env) = begin
     data = readavailable(env.sock) |> String
     if length(data) == 0
         return
-    else 
+    else
         if occursin("gameover", data)
             env.isDone = true
         else
-            splitData = split(data, " ") 
+            splitData = split(data, " ")
             parsed = map(x -> parse(UInt, x), splitData)
-            env.reward, env.state = parsed[1], parsed[2:end] 
+            env.reward, env.state = parsed[1], reshape(parsed[2:end], 4, 4)
         end
     end
     env
@@ -46,8 +46,8 @@ end
 function ReinforcementLearningBase.reset!(env::HS2048Env)
     close(env.sock)
     port, connection = listenany(ip"127.0.0.1", 2048)
-    #run(`./hs2048 -p $port '&'`, wait=false)
-    run(`alacritty -e ./hs2048 -p $port`, wait=false)
+    #run(`alacritty -e ./hs2048 -p $port '&'`, wait=false)
+    run(`xterm -e ./hs2048 -p $port`, wait=false)
     state = readBoardState(env)
     env.sock = accept(connection)
     readBoardState(env)
