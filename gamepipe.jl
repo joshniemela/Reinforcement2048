@@ -12,87 +12,71 @@ env = HS2048Env()
 #reset!(env)
 seed = 123
 rng = StableRNG(seed)
-#env = CartPoleEnv(; T = Float32, rng = rng)
+N_ENV = 128
+UPDATE_FREQ = 10
+
 ns, na = length(state(env)), length(action_space(env))
 
+n_atoms = 51
 agent = Agent(
     policy = QBasedPolicy(
-        learner = BasicDQNLearner(
+        learner = RainbowLearner(
             approximator = NeuralNetworkApproximator(
                 model = Chain(
-                    Dense(ns, 128, relu),
-                    Dense(128, 128, relu),
-                    Dense(128, 64, relu),
-                    Dense(64, 32, relu),
-                    Dense(32, na),
+                    Dense(ns, 1024, relu; init = glorot_uniform(rng)),
+                    Dense(1024, 256, relu; init = glorot_uniform(rng)),
+                    Dense(256, na * n_atoms; init = glorot_uniform(rng)),
                 ) |> gpu,
-                optimizer = ADAM(),
+                optimizer = ADAM(0.0005),
             ),
+            target_approximator = NeuralNetworkApproximator(
+                model = Chain(
+                    Dense(ns, 1024, relu; init = glorot_uniform(rng)),
+                    Dense(1024, 256, relu; init = glorot_uniform(rng)),
+                    Dense(256, na * n_atoms; init = glorot_uniform(rng)),
+                ) |> gpu,
+                optimizer = ADAM(0.0005),
+            ),
+            n_actions = na,
+            n_atoms = n_atoms,
+            Vₘₐₓ = 250.0f0,
+            Vₘᵢₙ = 0.0f0,
+            update_freq = 2,
+            γ = 0.985f0,
+            update_horizon = 1,
             batch_size = 32,
-            min_replay_history = 100,
-            loss_func = huber_loss,
+            stack_size = nothing,
+            min_replay_history = 64,
+            loss_func = (ŷ, y) -> logitcrossentropy(ŷ, y; agg = identity),
+            target_update_freq = 100,
             rng = rng,
         ),
         explorer = EpsilonGreedyExplorer(
             kind = :exp,
             ϵ_stable = 0.01,
-            decay_steps = 500,
+            decay_steps = 15000,
             rng = rng,
         ),
     ),
-    trajectory = CircularArraySARTTrajectory(
-        capacity = 1000,
+    trajectory = CircularArrayPSARTTrajectory(
+        capacity = 7500,
         state = Vector{Float32} => (ns,),
     ),
 )
-#agent = Agent(
-#    policy = QBasedPolicy(
-#        learner = DQNLearner(
-#            approximator = NeuralNetworkApproximator(
-#                model = DuelingNetwork(
-#                    base = Chain(
-#                        Dense(ns, 128, relu; init = glorot_uniform()),
-#                        Dense(128, 128, relu; init = glorot_uniform()),
-#                    ),
-#                    val = Dense(128, na; init = glorot_uniform()),
-#                    adv = Dense(128, na; init = glorot_uniform()),
-#                ),
-#                optimizer = ADAM(),
-#            ) |> gpu,
-#            target_approximator = NeuralNetworkApproximator(
-#                model = DuelingNetwork(
-#                    base = Chain(
-#                        Dense(ns, 128, relu; init = glorot_uniform()),
-#                        Dense(128, 128, relu; init = glorot_uniform()),
-#                    ),
-#                    val = Dense(128, na; init = glorot_uniform()),
-#                    adv = Dense(128, na; init = glorot_uniform()),
-#                ),
-#            ) |> gpu,
-#            loss_func = huber_loss,
-#            stack_size = nothing,
-#            batch_size = 32,
-#            update_horizon = 1,
-#            min_replay_history = 100,
-#            update_freq = 1,
-#            target_update_freq = 100,
-#        ),
-#        explorer = EpsilonGreedyExplorer(
-#            kind = :exp,
-#            ϵ_stable = 0.01,
-#            decay_steps = 500,
-#        ),
-#    ),
-#    trajectory = CircularArraySARTTrajectory(
-#        capacity = 1000,
-#        state = Vector{Float32} => (ns,),
-#    ),
-#)
+
 
 stopCondition = StopAfterEpisode(500, is_show_progress=!haskey(ENV, "CI"))
 hook = RewardsPerEpisode()
-
-run(agent, env, stopCondition, hook)
+run(RandomPolicy(), env, stopCondition, hook)
 
 using Plots
-plot(hook.rewards)
+using RollingFunctions
+
+rewards = hook.rewards .|> last .|> log2
+
+means = rollmean(rewards, 50)
+stds = rollstd(rewards, 50)
+
+plot(rewards, ribbon = stds, label = "Rolling score over time")
+
+savefig("gamepipe.png")
